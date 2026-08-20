@@ -297,7 +297,6 @@ export default function FloatingLines({
       });
     }
 
-    /* expose uniforms so the page can morph stages without re-mounting */
     if (uniformsRef) uniformsRef.current = uniforms;
 
     const material = new ShaderMaterial({ uniforms, vertexShader, fragmentShader });
@@ -307,18 +306,31 @@ export default function FloatingLines({
 
     const clock = new Clock();
 
-    const setSize = () => {
+    /* ---------------------------------------------------------- */
+    /* RESIZE GUARD: mobile URL-bar show/hide only changes height  */
+    /* by ~100px. Resizing the canvas then reallocates the buffer  */
+    /* and causes a black flash mid-scroll. So: ignore small       */
+    /* height-only changes; resize on width change / big changes.  */
+    /* CSS stretches the fixed canvas, so it stays seamless.       */
+    /* ---------------------------------------------------------- */
+    let lastW = 0;
+    let lastH = 0;
+    const setSize = (force) => {
       const width = container.clientWidth || 1;
       const height = container.clientHeight || 1;
+      if (!force && lastW === width && Math.abs(height - lastH) < 160) return;
+      lastW = width;
+      lastH = height;
       renderer.setSize(width, height, false);
       uniforms.iResolution.value.set(renderer.domElement.width, renderer.domElement.height, 1);
     };
-    setSize();
+    setSize(true);
 
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(setSize) : null;
+    const ro = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => setSize(false))
+      : null;
     if (ro) ro.observe(container);
 
-    /* pointer on window (container is pointer-events:none so scroll never blocks) */
     const targetMouse = new Vector2(-1000, -1000);
     const currentMouse = new Vector2(-1000, -1000);
     const targetParallax = new Vector2(0, 0);
