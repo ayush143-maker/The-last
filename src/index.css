@@ -309,3 +309,23 @@ body {
   .tl-grain { animation: none; }
   .tl-rail-dot { transition: none; }
 }
+/* 1 — real overflow hygiene at page level (replaces overflow-x: clip) */
+html, body {
+  overflow-x: hidden;
+}
+
+/* 2 — grain layer: explicit size instead of inset:-50% (can never widen the page) */
+.tl-grain {
+  position: fixed;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  /* ...rest of the rule stays identical... */
+}
+
+/* 3 — HUD survives 320px without colliding */
+@media (max-width: 400px) {
+  .tl-hud-extra { display: none; }
+  .tl-hud--tr { font-size: 8px; letter-spacing: 0.12em; }
+}
