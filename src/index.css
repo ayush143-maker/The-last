@@ -1,14 +1,10 @@
-/* ============================================================
-   THE LAST — field study 02 · violet edition
-   ============================================================ */
-
 :root {
-  --bg: #120d17;
+  --bg: #0b0710;
   --ink: #efeaff;
   --dim: #8b81a3;
   --soft: #c9c0dd;
   --line: rgba(239, 234, 255, 0.16);
-  --ember: #c96bff;
+  --ember: #e945f5;
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --disp: 'Syne', system-ui, sans-serif;
 }
@@ -18,7 +14,7 @@
 html {
   background: var(--bg);
   overflow-x: hidden;
-  -webkit-text-size-adjust: 100%;   /* kills mobile font-boosting */
+  -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   scrollbar-width: thin;
   scrollbar-color: #3a2f4a var(--bg);
@@ -44,24 +40,12 @@ body {
 
 /* ---------- layers ---------- */
 
-.tl-canvas {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  z-index: 0;
-  pointer-events: none;
-}
-
-.tl-canvas.is-unavailable { display: none; }
-
 .tl-vignette {
   position: fixed;
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(8, 5, 12, 0.65) 100%);
+  background: radial-gradient(120% 90% at 50% 45%, transparent 60%, rgba(5, 3, 8, 0.55) 100%);
 }
 
 .tl-grain {
@@ -85,7 +69,7 @@ body {
   100% { transform: translate(2%, 2%); }
 }
 
-/* ---------- viewport frame ---------- */
+/* ---------- frame ---------- */
 
 .tl-frame i {
   position: fixed;
@@ -118,7 +102,7 @@ body {
 .tl-hud--br.is-dim { opacity: 0.3; }
 .tl-hud-sep { margin: 0 0.8em; color: var(--ember); }
 
-/* ---------- progress rail ---------- */
+/* ---------- rail ---------- */
 
 .tl-rail {
   position: fixed;
@@ -162,7 +146,7 @@ body {
   height: 100svh;
   width: 100%;
   max-width: 100%;
-  overflow-x: clip;              /* guard: nothing can widen/escape the frame */
+  overflow-x: clip;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -175,7 +159,7 @@ body {
 .tl-stage--control  .tl-stage-inner { justify-content: center;   align-items: flex-start; padding: 0 9vw; }
 .tl-stage--last     .tl-stage-inner { justify-content: center;   align-items: center; text-align: center; padding: 0 6vw; }
 
-/* ---------- typography ---------- */
+/* ---------- typography (vw-fit: can NEVER overflow) ---------- */
 
 .tl-label {
   margin: 0;
@@ -193,7 +177,6 @@ body {
   background: var(--ember);
 }
 
-/* vw-fit sizing: long words (CONTROL) can never escape the viewport */
 .tl-display {
   margin: 0;
   font-family: var(--disp);
@@ -201,10 +184,10 @@ body {
   text-transform: uppercase;
   letter-spacing: -0.015em;
   line-height: 0.92;
-  font-size: clamp(2.2rem, 12vw, 7.5rem);
+  font-size: min(11.5vw, 7rem);
   max-width: 100%;
 }
-.tl-display--giant { font-size: clamp(2.6rem, 14vw, 9rem); }
+.tl-display--giant { font-size: min(13vw, 8.5rem); }
 
 .tl-sub {
   margin: 1.3rem 0 0;
@@ -284,8 +267,8 @@ body {
   .tl-stage--break   .tl-stage-inner { padding: 0 6vw; }
   .tl-stage--control .tl-stage-inner { padding: 0 6vw; }
 
-  .tl-display { line-height: 0.95; font-size: clamp(2rem, 12.5vw, 5.5rem); }
-  .tl-display--giant { font-size: clamp(2.2rem, 14vw, 6.5rem); }
+  .tl-display { line-height: 0.95; font-size: min(12.5vw, 5.5rem); }
+  .tl-display--giant { font-size: min(14vw, 6.5rem); }
   .tl-still { letter-spacing: 0.34em; }
 
   .tl-hud { font-size: 9px; letter-spacing: 0.18em; }
