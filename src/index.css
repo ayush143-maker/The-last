@@ -309,3 +309,7 @@ body {
   text-transform: none;
   letter-spacing: 0.02em;
 }
+/* force title fit — paste at the VERY END of index.css */
+.tl-display { font-size: min(11vw, 7rem) !important; max-width: 100% !important; }
+.tl-display--giant { font-size: min(13vw, 8.5rem) !important; }
+
