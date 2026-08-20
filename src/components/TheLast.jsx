@@ -4,7 +4,6 @@ import WebGLScene from './WebGLScene.jsx';
 const STAGES = ['01 / ORIGIN', '02 / BREAK', '03 / CONTROL', '04 / THE LAST'];
 const GLYPHS = '█▓▒░<>/\\*+=#%@$·01';
 
-/* Scramble-decode: characters resolve left → right */
 function scrambleIn(el) {
   const finalText = el.dataset.text || el.textContent;
   el.dataset.text = finalText;
@@ -43,7 +42,6 @@ export default function TheLast() {
     []
   );
 
-  /* HUD updates write straight to the DOM — zero React re-renders */
   const onTelemetry = useCallback((t) => {
     if (coordsRef.current) {
       coordsRef.current.textContent =
@@ -60,7 +58,6 @@ export default function TheLast() {
     }
   }, []);
 
-  /* Reveal stages as they enter; scramble-decode their titles once */
   useEffect(() => {
     const sections = Array.from(document.querySelectorAll('.tl-stage'));
     const io = new IntersectionObserver(
@@ -101,10 +98,10 @@ export default function TheLast() {
       </div>
 
       <header className="tl-hud tl-hud--tl">
-        THE LAST<span className="tl-hud-sep">—</span>FIELD STUDY 02
+        THE LAST<span className="tl-hud-extra"><span className="tl-hud-sep">—</span>FIELD STUDY 02</span>
       </header>
       <div className="tl-hud tl-hud--tr" ref={coordsRef}>
-        X +0.00&nbsp;&nbsp;Y +0.00&nbsp;&nbsp;R 8.6
+        X +0.00&nbsp;&nbsp;Y +0.00&nbsp;&nbsp;R 7.4
       </div>
       <div className="tl-hud tl-hud--bl" ref={stageTextRef}>01 / ORIGIN</div>
       <div className="tl-hud tl-hud--br" ref={brRef}>SCROLL TO EVOLVE</div>
@@ -124,7 +121,6 @@ export default function TheLast() {
       </div>
 
       <main>
-        {/* 01 — ORIGIN */}
         <section className="tl-stage tl-stage--origin">
           <div className="tl-stage-inner" data-reveal>
             <p className="tl-label tl-fade">01 / ORIGIN</p>
@@ -137,7 +133,6 @@ export default function TheLast() {
           </div>
         </section>
 
-        {/* 02 — BREAK */}
         <section className="tl-stage tl-stage--break">
           <div className="tl-stage-inner" data-reveal>
             <p className="tl-label tl-fade">02 / BREAK</p>
@@ -150,7 +145,6 @@ export default function TheLast() {
           </div>
         </section>
 
-        {/* 03 — CONTROL */}
         <section className="tl-stage tl-stage--control">
           <div className="tl-stage-inner" data-reveal>
             <p className="tl-label tl-fade">03 / CONTROL</p>
@@ -164,7 +158,6 @@ export default function TheLast() {
           </div>
         </section>
 
-        {/* 04 — THE LAST */}
         <section className="tl-stage tl-stage--last">
           <div className="tl-stage-inner" data-reveal>
             <p className="tl-label tl-fade">04 / THE LAST</p>
