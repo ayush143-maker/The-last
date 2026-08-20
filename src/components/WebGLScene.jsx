@@ -27,10 +27,6 @@ uniform float uHalfW;
 varying vec3  vColor;
 varying float vAlpha;
 
-/* cheap smooth noise — no special functions, max compatibility */
-float n3(vec3 p) {
-  return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453) * 2.0 - 1.0;
-}
 float flow(vec3 p) {
   return sin(p.x + sin(p.y * 1.7 + p.z) + sin(p.z * 2.3));
 }
@@ -47,7 +43,7 @@ void main() {
   float xs = position.x / uSpread;
   float ph = aSeed.y * 6.2831;
 
-  /* ORIGIN / BREAK — the flowing wave bundle */
+  /* ORIGIN / BREAK — flowing wave bundle */
   float amp = (0.17 + 0.10 * sin(ph * 3.0)) * (1.0 + wBreak * 2.4);
   vec3 streamPos = position;
   streamPos.y += (sin(xs * 1.15 + t * 0.7 + ph)
@@ -81,10 +77,11 @@ void main() {
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
 
-  float size = uSize * (0.45 + aSeed.x * 1.1) * (1.0 + aSeed.z * 1.8);
-  size *= 1.0 + wBreak * 0.4 * abs(flow(position * 3.0 + t));
-  size *= 1.0 + influence * 1.6;
-  gl_PointSize = max(size * uScale / max(0.1, -mv.z), 1.5); /* never subpixel */
+  /* CRISP POINTS — hard clamp kills the giant-blob whiteout */
+  float sz = uSize * (0.5 + aSeed.x * 1.0) * (1.0 + aSeed.z * 1.2);
+  sz *= 1.0 + wBreak * 0.35 * abs(flow(position * 3.0 + t));
+  sz *= 1.0 + influence * 1.2;
+  gl_PointSize = clamp(sz * uScale / max(0.1, -mv.z), 1.0, 24.0);
 
   /* palette: deep violet -> magenta -> lavender-white */
   vec3 cDeep  = vec3(0.30, 0.17, 0.45);
@@ -98,10 +95,10 @@ void main() {
   col += influence * vec3(0.55, 0.30, 0.90);
   vColor = col;
 
-  /* SAFE fade (no reversed smoothstep — was undefined on mobile GPUs) */
+  /* safe edge fade (no reversed smoothstep) */
   float endFade = 1.0 - smoothstep(0.78, 1.0, abs(position.x) / uHalfW);
 
-  float alpha = (0.10 + aSeed.z * 0.90) * endFade;
+  float alpha = (0.05 + aSeed.z * 0.95) * endFade;
   alpha *= mix(0.8, 1.0, wSphere);
   alpha *= 1.0 + influence * 0.8;
   vAlpha = clamp(alpha * uGain, 0.0, 1.0);
@@ -115,11 +112,11 @@ varying float vAlpha;
 
 void main() {
   float d = length(gl_PointCoord - 0.5);
-  float disc = smoothstep(0.5, 0.10, d);
-  float core = smoothstep(0.18, 0.0, d);
+  float disc = smoothstep(0.5, 0.22, d);   /* sharper edge, less blob */
+  float core = smoothstep(0.12, 0.0, d);
   float a = disc * vAlpha;
   if (a < 0.003) discard;
-  gl_FragColor = vec4(vColor + core * 0.5, a);
+  gl_FragColor = vec4(vColor + core * 0.6, a);
 }
 `;
 
@@ -176,7 +173,7 @@ export default function WebGLScene({ onTelemetry }) {
     let sv = 1234567;
     const rnd = () => { sv = (sv * 1664525 + 1013904223) % 4294967296; return sv / 4294967296; };
 
-    const STREAMS = mobile ? 36 : 56;
+    const STREAMS = mobile ? 32 : 56;
     const per = Math.floor(COUNT / STREAMS);
     const halfW0 = mobile ? 4.2 : 6.5;
 
@@ -197,14 +194,14 @@ export default function WebGLScene({ onTelemetry }) {
       const i3 = i * 3;
       const i4 = i * 4;
 
-      if (rnd() < 0.06) {
+      if (rnd() < 0.04) {
         const rad = (0.5 + Math.sqrt(rnd()) * 3.0) * S;
         const th = rnd() * Math.PI * 2;
         positions[i3]     = Math.cos(th) * rad;
         positions[i3 + 2] = Math.sin(th) * rad * 0.6;
         positions[i3 + 1] = (rnd() * 2 - 1) * 1.6 * S;
         seeds[i4] = rnd(); seeds[i4 + 1] = rnd();
-        seeds[i4 + 2] = 0.05 + rnd() * 0.1; seeds[i4 + 3] = rnd();
+        seeds[i4 + 2] = 0.04 + rnd() * 0.08; seeds[i4 + 3] = rnd();
       } else {
         const s = Math.min(Math.floor(i / per), STREAMS - 1);
         const u = ((i % per) + 0.5) / per;
@@ -243,10 +240,10 @@ export default function WebGLScene({ onTelemetry }) {
       uMotion:   { value: reduced ? 0.25 : 1 },
       uPointer:  { value: new Vec3(0, 0, 0) },
       uForce:    { value: 0 },
-      uSize:     { value: mobile ? 0.06 : 0.032 },
+      uSize:     { value: mobile ? 0.022 : 0.02 },
       uScale:    { value: 1 },
       uSpread:   { value: S },
-      uGain:     { value: mobile ? 2.0 : 1.1 },
+      uGain:     { value: mobile ? 1.25 : 1.0 },
       uHalfW:    { value: halfW0 * S },
     };
 
@@ -330,7 +327,7 @@ export default function WebGLScene({ onTelemetry }) {
       return arr[i] + (arr[i + 1] - arr[i]) * f;
     };
 
-    /* ---- loop (first frames guarded so any device error becomes visible) ---- */
+    /* ---- loop ---- */
     const damp = (dt, k) => 1 - Math.exp(-k * dt);
     let progress = targetProgress;
     let driftAngle = 0;
