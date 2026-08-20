@@ -1,14 +1,14 @@
 /* ============================================================
-   THE LAST — field study 02
+   THE LAST — field study 02 · violet edition
    ============================================================ */
 
 :root {
-  --bg: #050506;
-  --ink: #e7e2d9;
-  --dim: #8a857b;
-  --soft: #b9b3a6;
-  --line: rgba(231, 226, 217, 0.16);
-  --ember: #ff6a3d;
+  --bg: #120d17;
+  --ink: #efeaff;
+  --dim: #8b81a3;
+  --soft: #c9c0dd;
+  --line: rgba(239, 234, 255, 0.16);
+  --ember: #c96bff; /* violet accent now */
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --disp: 'Syne', system-ui, sans-serif;
 }
@@ -17,8 +17,9 @@
 
 html {
   background: var(--bg);
+  overflow-x: hidden;
   scrollbar-width: thin;
-  scrollbar-color: #2c2c2e var(--bg);
+  scrollbar-color: #3a2f4a var(--bg);
 }
 
 body {
@@ -26,7 +27,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--mono);
-  overflow-x: clip;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
@@ -35,7 +36,7 @@ body {
 
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: #2c2c2e; }
+::-webkit-scrollbar-thumb { background: #3a2f4a; }
 
 /* ---------- layers ---------- */
 
@@ -46,7 +47,7 @@ body {
   height: 100%;
   display: block;
   z-index: 0;
-  pointer-events: none; /* never blocks scrolling */
+  pointer-events: none;
 }
 
 .tl-canvas.is-unavailable { display: none; }
@@ -56,12 +57,15 @@ body {
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.6) 100%);
+  background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(8, 5, 12, 0.65) 100%);
 }
 
 .tl-grain {
   position: fixed;
-  inset: -50%;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
   z-index: 7;
   pointer-events: none;
   opacity: 0.05;
@@ -85,7 +89,7 @@ body {
   height: 22px;
   z-index: 6;
   pointer-events: none;
-  border: 0 solid rgba(231, 226, 217, 0.28);
+  border: 0 solid rgba(239, 234, 255, 0.28);
 }
 .tl-frame i:nth-child(1) { top: 14px;    left: 14px;  border-top-width: 1px; border-left-width: 1px; }
 .tl-frame i:nth-child(2) { top: 14px;    right: 14px; border-top-width: 1px; border-right-width: 1px; }
@@ -121,18 +125,11 @@ body {
   z-index: 6;
   pointer-events: none;
 }
-.tl-rail-line {
-  position: absolute;
-  inset: 0;
-  width: 1px;
-  background: var(--line);
-}
+.tl-rail-line { position: absolute; inset: 0; width: 1px; background: var(--line); }
 .tl-rail-fill {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 1px;
-  height: 100%;
+  top: 0; left: 0;
+  width: 1px; height: 100%;
   background: var(--ember);
   transform-origin: top center;
   transform: scaleY(0);
@@ -140,8 +137,7 @@ body {
 .tl-rail-dot {
   position: absolute;
   left: 0;
-  width: 5px;
-  height: 5px;
+  width: 5px; height: 5px;
   transform: translate(-2px, -50%);
   border: 1px solid var(--dim);
   border-radius: 50%;
@@ -184,8 +180,7 @@ body {
 .tl-label::before {
   content: '';
   display: inline-block;
-  width: 18px;
-  height: 1px;
+  width: 18px; height: 1px;
   margin-right: 10px;
   vertical-align: middle;
   background: var(--ember);
@@ -234,11 +229,7 @@ body {
   text-transform: uppercase;
   color: var(--ink);
 }
-.tl-still::before {
-  content: '▪';
-  margin-right: 0.9em;
-  color: var(--ember);
-}
+.tl-still::before { content: '▪'; margin-right: 0.9em; color: var(--ember); }
 
 .tl-colophon {
   margin: 3.2rem 0 0;
@@ -297,6 +288,11 @@ body {
   .tl-frame i { width: 14px; height: 14px; }
 }
 
+@media (max-width: 400px) {
+  .tl-hud-extra { display: none; }
+  .tl-hud--tr { font-size: 8px; letter-spacing: 0.12em; }
+}
+
 /* ---------- reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {
@@ -308,24 +304,4 @@ body {
   }
   .tl-grain { animation: none; }
   .tl-rail-dot { transition: none; }
-}
-/* 1 — real overflow hygiene at page level (replaces overflow-x: clip) */
-html, body {
-  overflow-x: hidden;
-}
-
-/* 2 — grain layer: explicit size instead of inset:-50% (can never widen the page) */
-.tl-grain {
-  position: fixed;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  /* ...rest of the rule stays identical... */
-}
-
-/* 3 — HUD survives 320px without colliding */
-@media (max-width: 400px) {
-  .tl-hud-extra { display: none; }
-  .tl-hud--tr { font-size: 8px; letter-spacing: 0.12em; }
 }
