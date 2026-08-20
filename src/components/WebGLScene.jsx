@@ -2,28 +2,29 @@ import { useEffect, useRef } from 'react';
 import { Renderer, Camera, Geometry, Program, Mesh, Vec3 } from 'ogl';
 
 /* ------------------------------------------------------------------ */
-/*  Shaders                                                            */
+/*  Shaders — flowing light streams                                    */
 /* ------------------------------------------------------------------ */
 
 const VERTEX = /* glsl */ `
-attribute vec3 position;   // ORIGIN  — loose cloud
+attribute vec3 position;   // stream base line (x along width, y band, z depth)
 attribute vec3 aGrid;      // CONTROL — lattice
 attribute vec3 aSphere;    // THE LAST — lobed monument
-attribute vec4 aSeed;      // per-particle variation
+attribute vec4 aSeed;      // x size · y stream phase · z stream brightness · w hue
 
 uniform mat4 modelViewMatrix;
 uniform mat4 projectionMatrix;
 uniform float uTime;
-uniform float uProgress;   // 0..3 across the four stages
-uniform float uMotion;     // 0.25 when prefers-reduced-motion
+uniform float uProgress;
+uniform float uMotion;
 uniform vec3  uPointer;
 uniform float uForce;
 uniform float uSize;
 uniform float uScale;
-uniform float uSpread;     // world scale (0.62 mobile / 1 desktop)
-uniform float uInvSpread;  // 1 / uSpread
-uniform float uFalloff;    // pointer gaussian falloff
-uniform float uGain;       // alpha boost for small screens
+uniform float uSpread;
+uniform float uInvSpread;
+uniform float uFalloff;
+uniform float uGain;
+uniform float uHalfW;
 
 varying vec3  vColor;
 varying float vAlpha;
@@ -37,55 +38,41 @@ vec4 taylorInvSqrt(vec4 r){ return 1.79284291400159 - 0.85373472095314 * r; }
 float snoise(vec3 v){
   const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
   const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
-
   vec3 i  = floor(v + dot(v, C.yyy));
   vec3 x0 = v - i + dot(i, C.xxx);
-
   vec3 g  = step(x0.yzx, x0.xyz);
   vec3 l  = 1.0 - g;
   vec3 i1 = min(g.xyz, l.zxy);
   vec3 i2 = max(g.xyz, l.zxy);
-
   vec3 x1 = x0 - i1 + C.xxx;
   vec3 x2 = x0 - i2 + C.yyy;
   vec3 x3 = x0 - D.yyy;
-
   i = mod289(i);
   vec4 p = permute(permute(permute(
         i.z + vec4(0.0, i1.z, i2.z, 1.0))
       + i.y + vec4(0.0, i1.y, i2.y, 1.0))
       + i.x + vec4(0.0, i1.x, i2.x, 1.0));
-
   float n_ = 0.142857142857;
   vec3 ns = n_ * D.wyz - D.xzx;
-
   vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-
   vec4 x_ = floor(j * ns.z);
   vec4 y_ = floor(j - 7.0 * x_);
-
   vec4 x = x_ * ns.x + ns.yyyy;
   vec4 y = y_ * ns.x + ns.yyyy;
   vec4 h = 1.0 - abs(x) - abs(y);
-
   vec4 b0 = vec4(x.xy, y.xy);
   vec4 b1 = vec4(x.zw, y.zw);
-
   vec4 s0 = floor(b0) * 2.0 + 1.0;
   vec4 s1 = floor(b1) * 2.0 + 1.0;
   vec4 sh = -step(h, vec4(0.0));
-
   vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
   vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
-
   vec3 p0 = vec3(a0.xy, h.x);
   vec3 p1 = vec3(a0.zw, h.y);
   vec3 p2 = vec3(a1.xy, h.z);
   vec3 p3 = vec3(a1.zw, h.w);
-
   vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
   p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
-
   vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
   m = m * m;
   return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
@@ -94,41 +81,29 @@ float snoise(vec3 v){
 void main() {
   float p = uProgress;
 
-  /* stage weights — one universe, four states */
   float wBreak  = smoothstep(0.12, 1.0, p) * (1.0 - smoothstep(1.55, 2.30, p));
   float wGrid   = smoothstep(1.35, 2.10, p);
   float wSphere = smoothstep(2.30, 2.90, p);
   float wCalm   = smoothstep(2.50, 2.98, p);
 
-  float t = uTime * uMotion;
+  float t  = uTime * uMotion;
+  float xs = position.x * uInvSpread;          // scale-independent coordinate
+  float ph = aSeed.y * 6.2831;
 
-  /* ambient drift — the calm origin state */
-  vec3 drift = vec3(
-    snoise(position * 0.55 + vec3(0.0, t * 0.05, 7.3)),
-    snoise(position * 0.55 + vec3(t * 0.06, 3.1, 0.0)),
-    snoise(position * 0.55 + vec3(9.2, 0.0, t * 0.05))
-  ) * (0.14 + 0.30 * wBreak) * uSpread;
+  /* ORIGIN / BREAK — the flowing wave bundle from the reference */
+  float amp = (0.17 + 0.10 * sin(ph * 3.0)) * (1.0 + wBreak * 2.4);
+  vec3 streamPos = position;
+  streamPos.y += (sin(xs * 1.15 + t * 0.7 + ph)
+                + sin(xs * 2.35 - t * 1.1 + ph * 2.0) * 0.5
+                + snoise(vec3(xs * 0.55, aSeed.y * 4.0, t * 0.30))) * amp * uSpread;
+  streamPos.z += cos(xs * 1.7 + t * 0.5 + ph) * 0.14 * uSpread * (1.0 + wBreak);
+  /* BREAK turbulence */
+  streamPos.x += snoise(vec3(position.y * 2.0, t * 0.6, ph)) * 0.55 * wBreak * uSpread;
+  streamPos.y += snoise(vec3(xs * 1.4, t * 0.8, ph)) * 0.65 * wBreak * uSpread;
 
-  /* BREAK — swirl, burst, stretch, unstable core */
-  float rr = length(position.xz);
-  float swirl = wBreak * (1.2 * exp(-rr * 0.45 * uInvSpread) + 0.18) * (aSeed.w * 2.0 - 1.0);
-  float ca = cos(swirl);
-  float sa = sin(swirl);
-  vec3 broken = position;
-  broken.xz = mat2(ca, -sa, sa, ca) * position.xz;
-  broken += normalize(position + 0.001)
-          * snoise(position * 1.6 + vec3(0.0, t * 0.4, 0.0)) * 1.15 * wBreak * uSpread;
-  broken.y *= 1.0 + wBreak * 0.5
-            * snoise(vec3(position.x * 0.7, t * 0.35, position.z * 0.7));
-  broken += wBreak * exp(-rr * 0.9 * uInvSpread) * 0.35 * uSpread
-          * vec3(sin(t * 2.1 + aSeed.y * 9.0),
-                 cos(t * 1.6 + aSeed.y * 7.0),
-                 sin(t * 2.7 + aSeed.y * 5.0));
+  vec3 pos = streamPos;
 
-  vec3 pos = position + drift;
-  pos = mix(pos, broken + drift * 1.4, wBreak);
-
-  /* CONTROL — settle into the lattice */
+  /* CONTROL — streams dissolve into the lattice */
   vec3 gridPos = aGrid + snoise(aGrid * 2.0 + t * 0.25) * 0.015 * uSpread;
   pos = mix(pos, gridPos, wGrid);
 
@@ -138,7 +113,7 @@ void main() {
   spherePos += normalize(aSphere) * snoise(aSphere * 1.4 + t * 0.15) * 0.05 * uSpread;
   pos = mix(pos, spherePos, wSphere);
 
-  /* pointer force field — desktop only (uForce stays 0 on touch) */
+  /* pointer force field (desktop only — uForce is 0 on touch) */
   vec3 toP = pos - uPointer;
   float d2 = dot(toP, toP);
   float influence = uForce * exp(-d2 * uFalloff);
@@ -148,27 +123,27 @@ void main() {
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
 
-  float size = uSize * (0.4 + aSeed.x * 1.4);
-  size *= 1.0 + wBreak * 0.5 * abs(snoise(position * 3.0 + t));
+  float size = uSize * (0.45 + aSeed.x * 1.1) * (1.0 + aSeed.z * 1.8);
+  size *= 1.0 + wBreak * 0.4 * abs(snoise(position * 3.0 + t));
   size *= 1.0 + influence * 1.6;
   gl_PointSize = size * uScale / max(0.1, -mv.z);
 
-  /* colour story: bone white → ember → steel → white-hot */
-  vec3 cBase  = vec3(0.90, 0.88, 0.84);
-  vec3 cEmber = vec3(1.00, 0.42, 0.20);
-  vec3 cSteel = vec3(0.58, 0.68, 0.78);
-  vec3 cCore  = vec3(1.00, 0.97, 0.90);
-  vec3 col = cBase;
-  col = mix(col, cEmber, wBreak * (0.25 + 0.75 * aSeed.w));
-  col = mix(col, cSteel, wGrid * (1.0 - wSphere) * 0.6);
-  col = mix(col, cCore,  wSphere * 0.75);
-  col += influence * vec3(0.85, 0.45, 0.20);
+  /* palette: deep violet → magenta → lavender-white (the reference video) */
+  vec3 cDeep  = vec3(0.30, 0.17, 0.45);
+  vec3 cMag   = vec3(0.80, 0.34, 1.00);
+  vec3 cWhite = vec3(0.97, 0.93, 1.00);
+  vec3 col = mix(cDeep, cMag, aSeed.z);
+  col = mix(col, cWhite, aSeed.z * aSeed.z * 0.75);
+  col = mix(col, vec3(1.00, 0.42, 0.85), wBreak * 0.35);
+  col = mix(col, vec3(0.60, 0.52, 0.95), wGrid * (1.0 - wSphere) * 0.5);
+  col = mix(col, cWhite, wSphere * 0.6);
+  col += influence * vec3(0.55, 0.30, 0.90);
   vColor = col;
 
-  float alpha = 0.28 + aSeed.z * 0.72;
-  alpha *= mix(0.75, 1.0, wSphere);
+  float endFade = smoothstep(1.0, 0.78, abs(position.x) / uHalfW);
+  float alpha = (0.06 + aSeed.z * 0.94) * endFade;
+  alpha *= mix(0.8, 1.0, wSphere);
   alpha *= 1.0 + influence * 0.8;
-  alpha *= mix(1.0, 0.55, step(0.82, aSeed.y) * (1.0 - wGrid));
   vAlpha = clamp(alpha * uGain, 0.0, 1.0);
 }
 `;
@@ -179,11 +154,11 @@ varying float vAlpha;
 
 void main() {
   float d = length(gl_PointCoord - 0.5);
-  float disc = smoothstep(0.5, 0.12, d);
-  float core = smoothstep(0.16, 0.0, d);
+  float disc = smoothstep(0.5, 0.10, d);
+  float core = smoothstep(0.18, 0.0, d);
   float a = disc * vAlpha;
   if (a < 0.003) discard;
-  gl_FragColor = vec4(vColor + core * 0.35, a);
+  gl_FragColor = vec4(vColor + core * 0.5, a);
 }
 `;
 
@@ -206,8 +181,7 @@ export default function WebGLScene({ onTelemetry }) {
     const small   = Math.min(window.innerWidth, window.innerHeight) < 760;
     const mobile  = coarse || small;
 
-    /* Mobile gets its own composition: the whole universe is generated
-       at 0.62x so every stage fits inside a narrow portrait frustum.   */
+    /* Mobile gets its own fitted composition (0.62x world). */
     const S = mobile ? 0.62 : 1.0;
 
     let renderer;
@@ -225,11 +199,11 @@ export default function WebGLScene({ onTelemetry }) {
     }
 
     const gl = renderer.gl;
-    gl.clearColor(0.02, 0.02, 0.024, 1);
+    gl.clearColor(0.075, 0.055, 0.10, 1); // deep aubergine, matches CSS --bg
 
     const camera = new Camera(gl, { fov: 42, near: 0.1, far: 80 });
 
-    /* ---- particle data: COUNT = N³ so the CONTROL lattice is exact ---- */
+    /* ---- particle data: streams + lattice + monument ---- */
     const N = mobile ? 24 : 34;
     const COUNT = N * N * N;
     const GA = Math.PI * (3 - Math.sqrt(5));
@@ -239,26 +213,55 @@ export default function WebGLScene({ onTelemetry }) {
     const sphere    = new Float32Array(COUNT * 3);
     const seeds     = new Float32Array(COUNT * 4);
 
+    /* deterministic rng so every load composes the same "artwork" */
+    let sv = 1234567;
+    const rnd = () => { sv = (sv * 1664525 + 1013904223) % 4294967296; return sv / 4294967296; };
+
+    const STREAMS = mobile ? 36 : 56;
+    const per = Math.floor(COUNT / STREAMS);
+    const halfW0 = mobile ? 4.2 : 6.5;
+
+    const sY = [], sSlope = [], sBright = [], sPhase = [], sZ = [];
+    for (let s = 0; s < STREAMS; s += 1) {
+      const hero = s % 8 === 0;
+      sBright[s] = hero ? 0.8 + rnd() * 0.2 : 0.06 + rnd() * 0.4;
+      sY[s]    = hero ? (rnd() - 0.5) * 0.9 : (rnd() * 2 - 1) * 1.6;
+      sSlope[s] = (rnd() - 0.5) * 0.5;
+      sPhase[s] = rnd();
+      sZ[s]    = (rnd() - 0.5) * 1.4;
+    }
+
     const spacing = (4.6 * S) / (N - 1);
     const half = (N - 1) / 2;
-    const farProb = mobile ? 0.08 : 0.15;
 
     for (let i = 0; i < COUNT; i += 1) {
       const i3 = i * 3;
       const i4 = i * 4;
 
-      // ORIGIN — flattened cloud (scaled on mobile so it fits the frame)
-      const far = Math.random() < farProb;
-      const rad = (far
-        ? (mobile ? 3.4 : 4.5) + Math.random() * (mobile ? 2.0 : 3.5)
-        : 0.5 + Math.sqrt(Math.random()) * 3.2) * S;
-      const th = Math.random() * Math.PI * 2;
-      positions[i3]     = Math.cos(th) * rad;
-      positions[i3 + 2] = Math.sin(th) * rad;
-      positions[i3 + 1] = (Math.random() + Math.random() + Math.random() - 1.5)
-                        * (far ? 1.9 : 0.85) * S;
+      if (rnd() < 0.06) {
+        /* ambient dust for depth */
+        const rad = (0.5 + Math.sqrt(rnd()) * 3.0) * S;
+        const th = rnd() * Math.PI * 2;
+        positions[i3]     = Math.cos(th) * rad;
+        positions[i3 + 2] = Math.sin(th) * rad * 0.6;
+        positions[i3 + 1] = (rnd() * 2 - 1) * 1.6 * S;
+        seeds[i4] = rnd(); seeds[i4 + 1] = rnd();
+        seeds[i4 + 2] = 0.05 + rnd() * 0.1; seeds[i4 + 3] = rnd();
+      } else {
+        /* a point on a flowing stream */
+        const s = Math.min(Math.floor(i / per), STREAMS - 1);
+        const u = ((i % per) + 0.5) / per;
+        const x0 = (u * 2 - 1) * halfW0;
+        positions[i3]     = x0 * S;
+        positions[i3 + 1] = (sY[s] + x0 * sSlope[s] * 0.35 + (rnd() - 0.5) * 0.03) * S;
+        positions[i3 + 2] = (sZ[s] + (rnd() - 0.5) * 0.25) * S;
+        seeds[i4]     = rnd();
+        seeds[i4 + 1] = sPhase[s];
+        seeds[i4 + 2] = sBright[s];
+        seeds[i4 + 3] = rnd();
+      }
 
-      // CONTROL — cubic lattice
+      /* CONTROL — cubic lattice */
       const gx = i % N;
       const gy = Math.floor(i / N) % N;
       const gz = Math.floor(i / (N * N));
@@ -266,22 +269,17 @@ export default function WebGLScene({ onTelemetry }) {
       grid[i3 + 1] = (gy - half) * spacing;
       grid[i3 + 2] = (gz - half) * spacing;
 
-      // THE LAST — lobed fibonacci sphere
+      /* THE LAST — lobed fibonacci sphere */
       const tt = COUNT > 1 ? i / (COUNT - 1) : 0;
       const y = 1 - tt * 2;
       const ring = Math.sqrt(Math.max(0, 1 - y * y));
       const phi = GA * i;
       const lobe = 0.34 * Math.sin(3.0 * phi) * Math.sin(2.4 * y * Math.PI)
                  + 0.16 * Math.sin(5.2 * y * Math.PI - phi * 2.0);
-      const R = (2.0 + lobe + (Math.random() - 0.5) * 0.22) * S;
+      const R = (2.0 + lobe + (rnd() - 0.5) * 0.22) * S;
       sphere[i3]     = Math.cos(phi) * ring * R;
       sphere[i3 + 1] = y * R;
       sphere[i3 + 2] = Math.sin(phi) * ring * R;
-
-      seeds[i4]     = Math.random();
-      seeds[i4 + 1] = Math.random();
-      seeds[i4 + 2] = Math.random();
-      seeds[i4 + 3] = Math.random();
     }
 
     const uniforms = {
@@ -290,12 +288,13 @@ export default function WebGLScene({ onTelemetry }) {
       uMotion:    { value: reduced ? 0.25 : 1 },
       uPointer:   { value: new Vec3(0, 0, 0) },
       uForce:     { value: 0 },
-      uSize:      { value: mobile ? 0.05 : 0.028 },  // bigger points on phones
+      uSize:      { value: mobile ? 0.05 : 0.03 },
       uScale:     { value: 1 },
       uSpread:    { value: S },
       uInvSpread: { value: 1 / S },
       uFalloff:   { value: mobile ? 1.55 : 0.6 },
-      uGain:      { value: mobile ? 1.7 : 1.0 },     // contrast boost on phones
+      uGain:      { value: mobile ? 1.7 : 1.0 },
+      uHalfW:     { value: halfW0 * S },
     };
 
     const program = new Program(gl, {
@@ -361,7 +360,7 @@ export default function WebGLScene({ onTelemetry }) {
     window.addEventListener('resize', resize);
     resize();
 
-    /* ---- camera keyframes: mobile gets fitted distances ---- */
+    /* ---- camera keyframes: mobile fitted ---- */
     const KEY_Z     = mobile ? [7.4, 7.0, 6.3, 5.8] : [8.6, 7.6, 6.9, 6.0];
     const KEY_Y     = mobile ? [0.35, 0.75, 1.1, 0.22] : [0.5, 1.05, 1.6, 0.3];
     const KEY_ORBIT = [0.0, 0.3, 0.85, 1.45];
@@ -391,7 +390,6 @@ export default function WebGLScene({ onTelemetry }) {
       progress += (targetProgress - progress) * damp(dt, 2.4);
       uniforms.uProgress.value = progress;
 
-      /* pointer smoothing + velocity (desktop only) */
       if (!coarse) {
         ndc.x += (ndc.tx - ndc.x) * damp(dt, 9);
         ndc.y += (ndc.ty - ndc.y) * damp(dt, 9);
@@ -420,7 +418,6 @@ export default function WebGLScene({ onTelemetry }) {
         pv.z += (ptrTarget.z - pv.z) * pk;
       }
 
-      /* force: 0 on touch — scroll drives the transformation there */
       const idle = simTime - lastPointerTime;
       const forceTarget = coarse
         ? 0
@@ -428,7 +425,6 @@ export default function WebGLScene({ onTelemetry }) {
       const fk = damp(dt, forceTarget > uniforms.uForce.value ? 7 : 1.6);
       uniforms.uForce.value += (forceTarget - uniforms.uForce.value) * fk;
 
-      /* camera — slow orbit, keyframed distance/height; no parallax on touch */
       driftAngle += dt * (reduced ? 0.004 : 0.03);
       const parallax = coarse ? 0 : (reduced ? 0.3 : 1);
       const orbit = keyLerp(KEY_ORBIT, progress) + driftAngle + ndc.x * 0.05 * parallax;
