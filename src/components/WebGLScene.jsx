@@ -16,10 +16,14 @@ uniform mat4 projectionMatrix;
 uniform float uTime;
 uniform float uProgress;   // 0..3 across the four stages
 uniform float uMotion;     // 0.25 when prefers-reduced-motion
-uniform vec3  uPointer;    // pointer projected onto the field plane
-uniform float uForce;      // pointer force strength (inertia in JS)
+uniform vec3  uPointer;
+uniform float uForce;
 uniform float uSize;
-uniform float uScale;      // viewport scale for point attenuation
+uniform float uScale;
+uniform float uSpread;     // world scale (0.62 mobile / 1 desktop)
+uniform float uInvSpread;  // 1 / uSpread
+uniform float uFalloff;    // pointer gaussian falloff
+uniform float uGain;       // alpha boost for small screens
 
 varying vec3  vColor;
 varying float vAlpha;
@@ -103,20 +107,20 @@ void main() {
     snoise(position * 0.55 + vec3(0.0, t * 0.05, 7.3)),
     snoise(position * 0.55 + vec3(t * 0.06, 3.1, 0.0)),
     snoise(position * 0.55 + vec3(9.2, 0.0, t * 0.05))
-  ) * (0.14 + 0.30 * wBreak);
+  ) * (0.14 + 0.30 * wBreak) * uSpread;
 
   /* BREAK — swirl, burst, stretch, unstable core */
   float rr = length(position.xz);
-  float swirl = wBreak * (1.2 * exp(-rr * 0.45) + 0.18) * (aSeed.w * 2.0 - 1.0);
+  float swirl = wBreak * (1.2 * exp(-rr * 0.45 * uInvSpread) + 0.18) * (aSeed.w * 2.0 - 1.0);
   float ca = cos(swirl);
   float sa = sin(swirl);
   vec3 broken = position;
   broken.xz = mat2(ca, -sa, sa, ca) * position.xz;
   broken += normalize(position + 0.001)
-          * snoise(position * 1.6 + vec3(0.0, t * 0.4, 0.0)) * 1.15 * wBreak;
+          * snoise(position * 1.6 + vec3(0.0, t * 0.4, 0.0)) * 1.15 * wBreak * uSpread;
   broken.y *= 1.0 + wBreak * 0.5
             * snoise(vec3(position.x * 0.7, t * 0.35, position.z * 0.7));
-  broken += wBreak * exp(-rr * 0.9) * 0.35
+  broken += wBreak * exp(-rr * 0.9 * uInvSpread) * 0.35 * uSpread
           * vec3(sin(t * 2.1 + aSeed.y * 9.0),
                  cos(t * 1.6 + aSeed.y * 7.0),
                  sin(t * 2.7 + aSeed.y * 5.0));
@@ -125,21 +129,21 @@ void main() {
   pos = mix(pos, broken + drift * 1.4, wBreak);
 
   /* CONTROL — settle into the lattice */
-  vec3 gridPos = aGrid + snoise(aGrid * 2.0 + t * 0.25) * 0.015;
+  vec3 gridPos = aGrid + snoise(aGrid * 2.0 + t * 0.25) * 0.015 * uSpread;
   pos = mix(pos, gridPos, wGrid);
 
   /* THE LAST — breathing monument */
   float breathe = 1.0 + 0.04 * sin(t * 0.7 + aSeed.y * 6.2831) * (1.0 - wCalm * 0.7);
   vec3 spherePos = aSphere * breathe;
-  spherePos += normalize(aSphere) * snoise(aSphere * 1.4 + t * 0.15) * 0.05 * uMotion;
+  spherePos += normalize(aSphere) * snoise(aSphere * 1.4 + t * 0.15) * 0.05 * uSpread;
   pos = mix(pos, spherePos, wSphere);
 
-  /* pointer force field — repulsion + tangential bend */
+  /* pointer force field — desktop only (uForce stays 0 on touch) */
   vec3 toP = pos - uPointer;
   float d2 = dot(toP, toP);
-  float influence = uForce * exp(-d2 * 0.6);
-  pos += normalize(toP + 1e-4) * influence * 0.85;
-  pos += normalize(cross(vec3(0.0, 1.0, 0.0), toP) + 1e-4) * influence * 0.5;
+  float influence = uForce * exp(-d2 * uFalloff);
+  pos += normalize(toP + 1e-4) * influence * 0.85 * uSpread;
+  pos += normalize(cross(vec3(0.0, 1.0, 0.0), toP) + 1e-4) * influence * 0.5 * uSpread;
 
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
@@ -164,8 +168,8 @@ void main() {
   float alpha = 0.28 + aSeed.z * 0.72;
   alpha *= mix(0.75, 1.0, wSphere);
   alpha *= 1.0 + influence * 0.8;
-  alpha *= mix(1.0, 0.55, step(0.82, aSeed.y) * (1.0 - wGrid)); // sparse origin feel
-  vAlpha = clamp(alpha, 0.0, 1.0);
+  alpha *= mix(1.0, 0.55, step(0.82, aSeed.y) * (1.0 - wGrid));
+  vAlpha = clamp(alpha * uGain, 0.0, 1.0);
 }
 `;
 
@@ -191,7 +195,6 @@ export default function WebGLScene({ onTelemetry }) {
   const canvasRef = useRef(null);
   const cbRef = useRef(null);
 
-  // keep the callback fresh without re-running the WebGL effect
   useEffect(() => { cbRef.current = onTelemetry; }, [onTelemetry]);
 
   useEffect(() => {
@@ -203,6 +206,10 @@ export default function WebGLScene({ onTelemetry }) {
     const small   = Math.min(window.innerWidth, window.innerHeight) < 760;
     const mobile  = coarse || small;
 
+    /* Mobile gets its own composition: the whole universe is generated
+       at 0.62x so every stage fits inside a narrow portrait frustum.   */
+    const S = mobile ? 0.62 : 1.0;
+
     let renderer;
     try {
       renderer = new Renderer({
@@ -213,7 +220,7 @@ export default function WebGLScene({ onTelemetry }) {
         powerPreference: 'high-performance',
       });
     } catch (err) {
-      canvas.classList.add('is-unavailable'); // page still works, typography only
+      canvas.classList.add('is-unavailable');
       return undefined;
     }
 
@@ -223,30 +230,33 @@ export default function WebGLScene({ onTelemetry }) {
     const camera = new Camera(gl, { fov: 42, near: 0.1, far: 80 });
 
     /* ---- particle data: COUNT = N³ so the CONTROL lattice is exact ---- */
-    const N = mobile ? 24 : 34;               // 13,824 or 39,304 particles
+    const N = mobile ? 24 : 34;
     const COUNT = N * N * N;
-    const GA = Math.PI * (3 - Math.sqrt(5));  // golden angle
+    const GA = Math.PI * (3 - Math.sqrt(5));
 
     const positions = new Float32Array(COUNT * 3);
     const grid      = new Float32Array(COUNT * 3);
     const sphere    = new Float32Array(COUNT * 3);
     const seeds     = new Float32Array(COUNT * 4);
 
-    const spacing = 4.6 / (N - 1);
+    const spacing = (4.6 * S) / (N - 1);
     const half = (N - 1) / 2;
+    const farProb = mobile ? 0.08 : 0.15;
 
     for (let i = 0; i < COUNT; i += 1) {
       const i3 = i * 3;
       const i4 = i * 4;
 
-      // ORIGIN — flattened cloud, some far dust for depth
-      const far = Math.random() < 0.15;
-      const rad = far ? 4.5 + Math.random() * 3.5 : 0.5 + Math.sqrt(Math.random()) * 3.2;
+      // ORIGIN — flattened cloud (scaled on mobile so it fits the frame)
+      const far = Math.random() < farProb;
+      const rad = (far
+        ? (mobile ? 3.4 : 4.5) + Math.random() * (mobile ? 2.0 : 3.5)
+        : 0.5 + Math.sqrt(Math.random()) * 3.2) * S;
       const th = Math.random() * Math.PI * 2;
       positions[i3]     = Math.cos(th) * rad;
       positions[i3 + 2] = Math.sin(th) * rad;
       positions[i3 + 1] = (Math.random() + Math.random() + Math.random() - 1.5)
-                        * (far ? 1.9 : 0.85);
+                        * (far ? 1.9 : 0.85) * S;
 
       // CONTROL — cubic lattice
       const gx = i % N;
@@ -263,7 +273,7 @@ export default function WebGLScene({ onTelemetry }) {
       const phi = GA * i;
       const lobe = 0.34 * Math.sin(3.0 * phi) * Math.sin(2.4 * y * Math.PI)
                  + 0.16 * Math.sin(5.2 * y * Math.PI - phi * 2.0);
-      const R = 2.0 + lobe + (Math.random() - 0.5) * 0.22;
+      const R = (2.0 + lobe + (Math.random() - 0.5) * 0.22) * S;
       sphere[i3]     = Math.cos(phi) * ring * R;
       sphere[i3 + 1] = y * R;
       sphere[i3 + 2] = Math.sin(phi) * ring * R;
@@ -275,13 +285,17 @@ export default function WebGLScene({ onTelemetry }) {
     }
 
     const uniforms = {
-      uTime:     { value: 0 },
-      uProgress: { value: 0 },
-      uMotion:   { value: reduced ? 0.25 : 1 },
-      uPointer:  { value: new Vec3(0, 0, 0) },
-      uForce:    { value: 0 },
-      uSize:     { value: mobile ? 0.024 : 0.028 },
-      uScale:    { value: 1 },
+      uTime:      { value: 0 },
+      uProgress:  { value: 0 },
+      uMotion:    { value: reduced ? 0.25 : 1 },
+      uPointer:   { value: new Vec3(0, 0, 0) },
+      uForce:     { value: 0 },
+      uSize:      { value: mobile ? 0.05 : 0.028 },  // bigger points on phones
+      uScale:     { value: 1 },
+      uSpread:    { value: S },
+      uInvSpread: { value: 1 / S },
+      uFalloff:   { value: mobile ? 1.55 : 0.6 },
+      uGain:      { value: mobile ? 1.7 : 1.0 },     // contrast boost on phones
     };
 
     const program = new Program(gl, {
@@ -300,11 +314,10 @@ export default function WebGLScene({ onTelemetry }) {
       aSeed:    { size: 4, data: seeds },
     });
 
-    // FIX IS HERE: Use Mesh with mode: gl.POINTS instead of Points
     const points = new Mesh(gl, { mode: gl.POINTS, geometry, program });
     points.frustumCulled = false;
 
-    /* ---- pointer ---- */
+    /* ---- pointer (desktop only; touch is scroll-driven) ---- */
     const ndc = { x: 0, y: 0, tx: 0, ty: 0 };
     const ptrTarget = new Vec3(0, 0, 0);
     const tmp = new Vec3();
@@ -320,7 +333,7 @@ export default function WebGLScene({ onTelemetry }) {
       lastPointerTime = simTime;
     };
     const onPointerMove = (e) => {
-      if (e.clientX != null) setPointer(e.clientX, e.clientY);
+      if (!coarse && e.clientX != null) setPointer(e.clientX, e.clientY);
     };
     window.addEventListener('pointermove', onPointerMove, { passive: true });
     window.addEventListener('pointerdown', onPointerMove, { passive: true });
@@ -334,19 +347,23 @@ export default function WebGLScene({ onTelemetry }) {
     window.addEventListener('scroll', readScroll, { passive: true });
     readScroll();
 
-    /* ---- resize ---- */
+    /* ---- resize: aspect-adaptive FOV so portrait screens fit the field ---- */
     const resize = () => {
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      camera.perspective({ aspect: window.innerWidth / window.innerHeight });
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      renderer.setSize(w, h);
+      const aspect = w / h;
+      const fov = aspect >= 1 ? 42 : Math.min(74, 42 + (1 - aspect) * 38);
+      camera.perspective({ fov, aspect });
       uniforms.uScale.value =
         (gl.drawingBufferHeight * 0.5) / Math.tan((camera.fov * Math.PI) / 360);
     };
     window.addEventListener('resize', resize);
     resize();
 
-    /* ---- camera keyframes per stage ---- */
-    const KEY_Z     = [8.6, 7.6, 6.9, 6.0];
-    const KEY_Y     = [0.5, 1.05, 1.6, 0.3];
+    /* ---- camera keyframes: mobile gets fitted distances ---- */
+    const KEY_Z     = mobile ? [7.4, 7.0, 6.3, 5.8] : [8.6, 7.6, 6.9, 6.0];
+    const KEY_Y     = mobile ? [0.35, 0.75, 1.1, 0.22] : [0.5, 1.05, 1.6, 0.3];
     const KEY_ORBIT = [0.0, 0.3, 0.85, 1.45];
     const smooth = (x) => x * x * (3 - 2 * x);
     const keyLerp = (arr, p) => {
@@ -357,7 +374,7 @@ export default function WebGLScene({ onTelemetry }) {
 
     /* ---- loop ---- */
     const damp = (dt, k) => 1 - Math.exp(-k * dt);
-    let progress = targetProgress;   // reload mid-page: no fly-through
+    let progress = targetProgress;
     let driftAngle = 0;
     let raf = 0;
     let running = true;
@@ -374,47 +391,48 @@ export default function WebGLScene({ onTelemetry }) {
       progress += (targetProgress - progress) * damp(dt, 2.4);
       uniforms.uProgress.value = progress;
 
-      /* pointer smoothing + velocity */
-      ndc.x += (ndc.tx - ndc.x) * damp(dt, 9);
-      ndc.y += (ndc.ty - ndc.y) * damp(dt, 9);
-      const moveDist = Math.hypot(ndc.tx - prevTx, ndc.ty - prevTy);
-      prevTx = ndc.tx;
-      prevTy = ndc.ty;
-      pointerSpeed += (Math.min(moveDist / Math.max(dt, 0.001), 4) / 4 - pointerSpeed) * damp(dt, 6);
+      /* pointer smoothing + velocity (desktop only) */
+      if (!coarse) {
+        ndc.x += (ndc.tx - ndc.x) * damp(dt, 9);
+        ndc.y += (ndc.ty - ndc.y) * damp(dt, 9);
+        const moveDist = Math.hypot(ndc.tx - prevTx, ndc.ty - prevTy);
+        prevTx = ndc.tx;
+        prevTy = ndc.ty;
+        pointerSpeed += (Math.min(moveDist / Math.max(dt, 0.001), 4) / 4 - pointerSpeed) * damp(dt, 6);
 
-      /* project pointer onto the field plane (z = 0) */
-      camera.updateMatrixWorld();
-      tmp.set(ndc.x, ndc.y, 0.5).unproject(camera);
-      tmp.sub(camera.worldPosition); // now a direction
-      if (Math.abs(tmp.z) > 1e-4) {
-        const tt = -camera.worldPosition.z / tmp.z;
-        if (tt > 0) {
-          ptrTarget.set(
-            camera.worldPosition.x + tmp.x * tt,
-            camera.worldPosition.y + tmp.y * tt,
-            0
-          );
+        camera.updateMatrixWorld();
+        tmp.set(ndc.x, ndc.y, 0.5).unproject(camera);
+        tmp.sub(camera.worldPosition);
+        if (Math.abs(tmp.z) > 1e-4) {
+          const tt = -camera.worldPosition.z / tmp.z;
+          if (tt > 0) {
+            ptrTarget.set(
+              camera.worldPosition.x + tmp.x * tt,
+              camera.worldPosition.y + tmp.y * tt,
+              0
+            );
+          }
         }
+        const pv = uniforms.uPointer.value;
+        const pk = damp(dt, 8);
+        pv.x += (ptrTarget.x - pv.x) * pk;
+        pv.y += (ptrTarget.y - pv.y) * pk;
+        pv.z += (ptrTarget.z - pv.z) * pk;
       }
-      const pv = uniforms.uPointer.value;
-      const pk = damp(dt, 8);
-      pv.x += (ptrTarget.x - pv.x) * pk;
-      pv.y += (ptrTarget.y - pv.y) * pk;
-      pv.z += (ptrTarget.z - pv.z) * pk;
 
-      /* force: rises fast while moving, decays slowly when still */
+      /* force: 0 on touch — scroll drives the transformation there */
       const idle = simTime - lastPointerTime;
-      const forceTarget = idle < 1.6
-        ? (coarse ? 0.75 : 1) * (0.5 + 0.5 * Math.min(pointerSpeed * 1.6, 1))
-        : 0;
+      const forceTarget = coarse
+        ? 0
+        : (idle < 1.6 ? (0.5 + 0.5 * Math.min(pointerSpeed * 1.6, 1)) : 0);
       const fk = damp(dt, forceTarget > uniforms.uForce.value ? 7 : 1.6);
       uniforms.uForce.value += (forceTarget - uniforms.uForce.value) * fk;
 
-      /* camera — one slow orbit, keyframed distance/height, gentle parallax */
+      /* camera — slow orbit, keyframed distance/height; no parallax on touch */
       driftAngle += dt * (reduced ? 0.004 : 0.03);
-      const parallax = reduced ? 0.3 : 1;
+      const parallax = coarse ? 0 : (reduced ? 0.3 : 1);
       const orbit = keyLerp(KEY_ORBIT, progress) + driftAngle + ndc.x * 0.05 * parallax;
-      const cz = keyLerp(KEY_Z, progress) + (mobile ? 1.0 : 0);
+      const cz = keyLerp(KEY_Z, progress);
       const cy = keyLerp(KEY_Y, progress) + ndc.y * 0.22 * parallax;
       camera.position.set(Math.sin(orbit) * cz, cy, Math.cos(orbit) * cz);
       camera.lookAt(0, keyLerp([0, 0.1, 0.15, 0], progress), 0);
@@ -425,15 +443,14 @@ export default function WebGLScene({ onTelemetry }) {
         cbRef.current({
           progress,
           stage: Math.max(0, Math.min(3, Math.round(progress))),
-          px: pv.x,
-          py: pv.y,
+          px: uniforms.uPointer.value.x,
+          py: uniforms.uPointer.value.y,
           dist: Math.hypot(camera.position.x, camera.position.y, camera.position.z),
         });
       }
     };
     raf = requestAnimationFrame(loop);
 
-    /* pause when the tab is hidden */
     const onVis = () => {
       if (document.hidden) {
         cancelAnimationFrame(raf);
@@ -453,8 +470,6 @@ export default function WebGLScene({ onTelemetry }) {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerdown', onPointerMove);
       document.removeEventListener('visibilitychange', onVis);
-      // Note: buffers/programs are released with the context on page unload;
-      // no explicit loseContext() so React StrictMode remounts stay healthy.
     };
   }, []);
 
