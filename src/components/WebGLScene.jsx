@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Renderer, Camera, Geometry, Program, Points, Vec3 } from 'ogl';
+import { Renderer, Camera, Geometry, Program, Mesh, Vec3 } from 'ogl';
 
 /* ------------------------------------------------------------------ */
 /*  Shaders                                                            */
@@ -300,7 +300,8 @@ export default function WebGLScene({ onTelemetry }) {
       aSeed:    { size: 4, data: seeds },
     });
 
-    const points = new Points(gl, { geometry, program });
+    // FIX IS HERE: Use Mesh with mode: gl.POINTS instead of Points
+    const points = new Mesh(gl, { mode: gl.POINTS, geometry, program });
     points.frustumCulled = false;
 
     /* ---- pointer ---- */
