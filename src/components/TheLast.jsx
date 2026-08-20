@@ -1,8 +1,42 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import WebGLScene from './WebGLScene.jsx';
+import FloatingLines from './FloatingLines.jsx';
 
 const STAGES = ['01 / ORIGIN', '02 / BREAK', '03 / CONTROL', '04 / THE LAST'];
 const GLYPHS = '█▓▒░<>/\\*+=#%@$·01';
+
+/* stage keyframes — one shader environment, four states */
+const K = {
+  speed:  [1.0, 2.4, 0.35, 0.9],
+  bend:   [-0.5, -2.2, -0.15, -0.6],
+  radius: [5, 8, 3, 5],
+  topY:   [0.5, 0.8, 0.5, 0.06],
+  topR:   [-0.4, -1.4, 0.0, -0.12],
+  midY:   [0.0, 0.35, 0.0, 0.0],
+  midR:   [0.2, 0.9, 0.0, 0.04],
+  botY:   [-0.7, -1.1, -0.7, -0.05],
+  botR:   [-1.0, -1.8, 0.0, -0.08],
+};
+
+const PALS = [
+  ['#f5f0ff', '#e945f5', '#b48cff', '#6f6f7a'], // origin — the video look
+  ['#ffd7fb', '#ff2fd6', '#ff5fa0', '#7a4a5a'], // break — hot magenta
+  ['#e8e8f2', '#9aa0b8', '#7d84a0', '#565a6e'], // control — steel order
+  ['#ffffff', '#ffb3f6', '#e945f5', '#9a86ff'], // last — white-hot bundle
+].map((pal) => pal.map((hex) => {
+  const v = hex.slice(1);
+  return [
+    parseInt(v.slice(0, 2), 16) / 255,
+    parseInt(v.slice(2, 4), 16) / 255,
+    parseInt(v.slice(4, 6), 16) / 255,
+  ];
+}));
+
+const smooth = (x) => x * x * (3 - 2 * x);
+const keyLerp = (arr, p) => {
+  const i = Math.min(Math.floor(p), arr.length - 2);
+  const f = smooth(Math.min(Math.max(p - i, 0), 1));
+  return arr[i] + (arr[i + 1] - arr[i]) * f;
+};
 
 function scrambleIn(el) {
   const finalText = el.dataset.text || el.textContent;
@@ -25,9 +59,8 @@ function scrambleIn(el) {
   return () => cancelAnimationFrame(raf);
 }
 
-const fmt = (v) => `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(2)}`;
-
 export default function TheLast() {
+  const uniformsRef = useRef(null);
   const coordsRef = useRef(null);
   const stageTextRef = useRef(null);
   const railFillRef = useRef(null);
@@ -41,23 +74,85 @@ export default function TheLast() {
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     []
   );
+  const coarse = useMemo(
+    () => typeof window !== 'undefined'
+      && window.matchMedia('(pointer: coarse)').matches,
+    []
+  );
 
-  const onTelemetry = useCallback((t) => {
-    if (coordsRef.current) {
-      coordsRef.current.textContent =
-        `X ${fmt(t.px)}  Y ${fmt(t.py)}  R ${t.dist.toFixed(1)}`;
-    }
-    if (railFillRef.current) {
-      railFillRef.current.style.transform = `scaleY(${Math.min(1, t.progress / 3)})`;
-    }
-    if (brRef.current) brRef.current.classList.toggle('is-dim', t.stage === 3);
-    if (t.stage !== stageIndex.current) {
-      stageIndex.current = t.stage;
-      if (stageTextRef.current) stageTextRef.current.textContent = STAGES[t.stage];
-      dotsRef.current.forEach((d, i) => d && d.classList.toggle('is-on', i <= t.stage));
-    }
-  }, []);
+  /* ---- scroll → morph uniforms directly (no React state) ---- */
+  useEffect(() => {
+    let raf = 0;
+    let target = 0;
+    let progress = 0;
+    let last = performance.now();
 
+    const readScroll = () => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      target = max > 0 ? Math.min(3, Math.max(0, (window.scrollY / max) * 3)) : 0;
+    };
+    window.addEventListener('scroll', readScroll, { passive: true });
+    readScroll();
+    progress = target;
+
+    const damp = (dt, k) => 1 - Math.exp(-k * dt);
+
+    const loop = (now) => {
+      raf = requestAnimationFrame(loop);
+      const dt = Math.min((now - last) / 1000, 0.05);
+      last = now;
+      progress += (target - progress) * damp(dt, 2.6);
+
+      const u = uniformsRef.current;
+      if (u) {
+        const m = reduced ? 0.3 : 1;
+        const speed = keyLerp(K.speed, progress) * m;
+        const bend = keyLerp(K.bend, progress);
+        u.animationSpeed.value = speed;
+        u.bendStrength.value = bend;
+        u.bendRadius.value = keyLerp(K.radius, progress);
+        u.topWavePosition.value.set(10, keyLerp(K.topY, progress), keyLerp(K.topR, progress));
+        u.middleWavePosition.value.set(5, keyLerp(K.midY, progress), keyLerp(K.midR, progress));
+        u.bottomWavePosition.value.set(2, keyLerp(K.botY, progress), keyLerp(K.botR, progress));
+
+        const i = Math.min(Math.floor(progress), 2);
+        const f = smooth(Math.min(Math.max(progress - i, 0), 1));
+        for (let c = 0; c < 4; c += 1) {
+          const a = PALS[i][c];
+          const b = PALS[i + 1][c];
+          u.lineGradient.value[c].set(
+            a[0] + (b[0] - a[0]) * f,
+            a[1] + (b[1] - a[1]) * f,
+            a[2] + (b[2] - a[2]) * f
+          );
+        }
+
+        if (coordsRef.current) {
+          coordsRef.current.textContent =
+            `SPD ${speed.toFixed(2)} · BND ${bend.toFixed(2)} · P ${progress.toFixed(2)}`;
+        }
+      }
+
+      if (railFillRef.current) {
+        railFillRef.current.style.transform = `scaleY(${Math.min(1, progress / 3)})`;
+      }
+      const stage = Math.max(0, Math.min(3, Math.round(progress)));
+      if (brRef.current) brRef.current.classList.toggle('is-dim', stage === 3);
+      if (stage !== stageIndex.current) {
+        stageIndex.current = stage;
+        if (stageTextRef.current) stageTextRef.current.textContent = STAGES[stage];
+        dotsRef.current.forEach((d, idx) => d && d.classList.toggle('is-on', idx <= stage));
+      }
+    };
+    raf = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('scroll', readScroll);
+    };
+  }, [reduced]);
+
+  /* ---- reveals ---- */
   useEffect(() => {
     const sections = Array.from(document.querySelectorAll('.tl-stage'));
     const io = new IntersectionObserver(
@@ -89,7 +184,18 @@ export default function TheLast() {
 
   return (
     <div className="thelast-root">
-      <WebGLScene onTelemetry={onTelemetry} />
+      <FloatingLines
+        uniformsRef={uniformsRef}
+        linesGradient={['#f5f0ff', '#e945f5', '#b48cff', '#6f6f7a']}
+        enabledWaves={['top', 'middle', 'bottom']}
+        lineCount={coarse ? 6 : 8}
+        lineDistance={8}
+        bendRadius={5}
+        bendStrength={-0.5}
+        interactive
+        parallax
+        animationSpeed={1}
+      />
 
       <div className="tl-vignette" aria-hidden="true" />
 
@@ -100,9 +206,7 @@ export default function TheLast() {
       <header className="tl-hud tl-hud--tl">
         THE LAST<span className="tl-hud-extra"><span className="tl-hud-sep">—</span>FIELD STUDY 02</span>
       </header>
-      <div className="tl-hud tl-hud--tr" ref={coordsRef}>
-        X +0.00&nbsp;&nbsp;Y +0.00&nbsp;&nbsp;R 7.4
-      </div>
+      <div className="tl-hud tl-hud--tr" ref={coordsRef}>SPD 1.00 · BND -0.50 · P 0.00</div>
       <div className="tl-hud tl-hud--bl" ref={stageTextRef}>01 / ORIGIN</div>
       <div className="tl-hud tl-hud--br" ref={brRef}>SCROLL TO EVOLVE</div>
 
@@ -166,7 +270,7 @@ export default function TheLast() {
             </h2>
             <p className="tl-still tl-fade" data-d="2">Still building.</p>
             <p className="tl-colophon tl-fade" data-d="3">
-              FIELD STUDY 02 · REACT + OGL · 2026<br />
+              FIELD STUDY 02 · REACT + THREE · 2026<br />
               PREV — 01 / THE FIRST ONE&nbsp;&nbsp;·&nbsp;&nbsp;NEXT — 03 / STILL LOADING…
             </p>
           </div>
