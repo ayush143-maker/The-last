@@ -298,3 +298,14 @@ body {
   .tl-grain { animation: none; }
   .tl-rail-dot { transition: none; }
 }
+/* ---------- signature credit ---------- */
+
+.tl-credit {
+  margin: 2.6rem 0 0;
+  font-family: 'Great Vibes', cursive;
+  font-size: clamp(1.8rem, 6vw, 3rem);
+  line-height: 1.2;
+  color: var(--soft);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
