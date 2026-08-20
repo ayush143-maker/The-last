@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import FloatingLines from './FloatingLines.jsx';
 
-const STAGES = ['01 / ORIGIN', '02 / BREAK', '03 / CONTROL', '04 / THE LAST'];
 const GLYPHS = '█▓▒░<>/\\*+=#%@$·01';
 
-/* stage keyframes — one shader environment, four states */
+/* stage keyframes — untouched */
 const K = {
   speed:  [1.0, 2.4, 0.35, 0.9],
   bend:   [-0.5, -2.2, -0.15, -0.6],
@@ -18,10 +17,10 @@ const K = {
 };
 
 const PALS = [
-  ['#f5f0ff', '#e945f5', '#b48cff', '#6f6f7a'], // origin — the video look
-  ['#ffd7fb', '#ff2fd6', '#ff5fa0', '#7a4a5a'], // break — hot magenta
-  ['#e8e8f2', '#9aa0b8', '#7d84a0', '#565a6e'], // control — steel order
-  ['#ffffff', '#ffb3f6', '#e945f5', '#9a86ff'], // last — white-hot bundle
+  ['#f5f0ff', '#e945f5', '#b48cff', '#6f6f7a'],
+  ['#ffd7fb', '#ff2fd6', '#ff5fa0', '#7a4a5a'],
+  ['#e8e8f2', '#9aa0b8', '#7d84a0', '#565a6e'],
+  ['#ffffff', '#ffb3f6', '#e945f5', '#9a86ff'],
 ].map((pal) => pal.map((hex) => {
   const v = hex.slice(1);
   return [
@@ -61,10 +60,7 @@ function scrambleIn(el) {
 
 export default function TheLast() {
   const uniformsRef = useRef(null);
-  const coordsRef = useRef(null);
-  const stageTextRef = useRef(null);
   const railFillRef = useRef(null);
-  const brRef = useRef(null);
   const dotsRef = useRef([]);
   const stageIndex = useRef(-1);
   const cancels = useRef(new Set());
@@ -80,7 +76,7 @@ export default function TheLast() {
     []
   );
 
-  /* ---- scroll → morph uniforms directly (no React state) ---- */
+  /* ---- scroll → morph uniforms (unchanged) ---- */
   useEffect(() => {
     let raf = 0;
     let target = 0;
@@ -106,10 +102,8 @@ export default function TheLast() {
       const u = uniformsRef.current;
       if (u) {
         const m = reduced ? 0.3 : 1;
-        const speed = keyLerp(K.speed, progress) * m;
-        const bend = keyLerp(K.bend, progress);
-        u.animationSpeed.value = speed;
-        u.bendStrength.value = bend;
+        u.animationSpeed.value = keyLerp(K.speed, progress) * m;
+        u.bendStrength.value = keyLerp(K.bend, progress);
         u.bendRadius.value = keyLerp(K.radius, progress);
         u.topWavePosition.value.set(10, keyLerp(K.topY, progress), keyLerp(K.topR, progress));
         u.middleWavePosition.value.set(5, keyLerp(K.midY, progress), keyLerp(K.midR, progress));
@@ -126,21 +120,14 @@ export default function TheLast() {
             a[2] + (b[2] - a[2]) * f
           );
         }
-
-        if (coordsRef.current) {
-          coordsRef.current.textContent =
-            `SPD ${speed.toFixed(2)} · BND ${bend.toFixed(2)} · P ${progress.toFixed(2)}`;
-        }
       }
 
       if (railFillRef.current) {
         railFillRef.current.style.transform = `scaleY(${Math.min(1, progress / 3)})`;
       }
       const stage = Math.max(0, Math.min(3, Math.round(progress)));
-      if (brRef.current) brRef.current.classList.toggle('is-dim', stage === 3);
       if (stage !== stageIndex.current) {
         stageIndex.current = stage;
-        if (stageTextRef.current) stageTextRef.current.textContent = STAGES[stage];
         dotsRef.current.forEach((d, idx) => d && d.classList.toggle('is-on', idx <= stage));
       }
     };
@@ -152,7 +139,7 @@ export default function TheLast() {
     };
   }, [reduced]);
 
-  /* ---- reveals ---- */
+  /* ---- reveals (unchanged) ---- */
   useEffect(() => {
     const sections = Array.from(document.querySelectorAll('.tl-stage'));
     const io = new IntersectionObserver(
@@ -203,13 +190,6 @@ export default function TheLast() {
         <i /><i /><i /><i />
       </div>
 
-      <header className="tl-hud tl-hud--tl">
-        THE LAST<span className="tl-hud-extra"><span className="tl-hud-sep">—</span>FIELD STUDY 02</span>
-      </header>
-      <div className="tl-hud tl-hud--tr" ref={coordsRef}>SPD 1.00 · BND -0.50 · P 0.00</div>
-      <div className="tl-hud tl-hud--bl" ref={stageTextRef}>01 / ORIGIN</div>
-      <div className="tl-hud tl-hud--br" ref={brRef}>SCROLL TO EVOLVE</div>
-
       <div className="tl-rail" aria-hidden="true">
         <div className="tl-rail-line">
           <div className="tl-rail-fill" ref={railFillRef} />
@@ -225,53 +205,57 @@ export default function TheLast() {
       </div>
 
       <main>
+        {/* 01 — START */}
         <section className="tl-stage tl-stage--origin">
           <div className="tl-stage-inner" data-reveal>
-            <p className="tl-label tl-fade">01 / ORIGIN</p>
+            <p className="tl-label tl-fade">01 / START</p>
             <h1 className="tl-display">
-              <span className="tl-mask"><span data-scramble>THE LAST</span></span>
+              <span className="tl-mask"><span data-scramble>START</span></span>
             </h1>
             <p className="tl-sub tl-fade" data-d="2">
-              the latest version of me as a creator.
+              Where it all began — simple code, basic ideas, and a lot to figure out.
             </p>
           </div>
         </section>
 
+        {/* 02 — EXPLORE */}
         <section className="tl-stage tl-stage--break">
           <div className="tl-stage-inner" data-reveal>
-            <p className="tl-label tl-fade">02 / BREAK</p>
+            <p className="tl-label tl-fade">02 / EXPLORE</p>
             <h2 className="tl-display">
-              <span className="tl-mask"><span data-scramble>BREAK</span></span>
+              <span className="tl-mask"><span data-scramble>EXPLORE</span></span>
             </h2>
             <p className="tl-line tl-mask" data-d="2">
-              <span>Everything changes when the rules stop helping.</span>
+              <span>Trying things, breaking things, and discovering what I actually enjoy building.</span>
             </p>
           </div>
         </section>
 
+        {/* 03 — SHAPE */}
         <section className="tl-stage tl-stage--control">
           <div className="tl-stage-inner" data-reveal>
-            <p className="tl-label tl-fade">03 / CONTROL</p>
+            <p className="tl-label tl-fade">03 / SHAPE</p>
             <h2 className="tl-display">
-              <span className="tl-mask"><span data-scramble>CONTROL</span></span>
+              <span className="tl-mask"><span data-scramble>SHAPE</span></span>
             </h2>
             <p className="tl-line tl-mask" data-d="2">
-              <span>Structure is chaos, held still.</span>
+              <span>Turning experiments into ideas that feel intentional, interactive, and mine.</span>
             </p>
-            <p className="tl-note tl-fade" data-d="3">FIELD STATE → LATTICE / ORDER RESTORED</p>
           </div>
         </section>
 
+        {/* 04 — NOW */}
         <section className="tl-stage tl-stage--last">
           <div className="tl-stage-inner" data-reveal>
-            <p className="tl-label tl-fade">04 / THE LAST</p>
+            <p className="tl-label tl-fade">04 / NOW</p>
             <h2 className="tl-display tl-display--giant">
-              <span className="tl-mask"><span data-scramble>THE LAST</span></span>
+              <span className="tl-mask"><span data-scramble>NOW</span></span>
             </h2>
-            <p className="tl-still tl-fade" data-d="2">Still building.</p>
-            <p className="tl-colophon tl-fade" data-d="3">
-              FIELD STUDY 02 · REACT + THREE · 2026<br />
-              PREV — 01 / THE FIRST ONE&nbsp;&nbsp;·&nbsp;&nbsp;NEXT — 03 / STILL LOADING…
+            <p className="tl-sub tl-fade" data-d="2">
+              The latest version of me — still learning, still building.
+            </p>
+            <p className="tl-credit tl-fade" data-d="3" data-scramble>
+              build by Ayush
             </p>
           </div>
         </section>
